@@ -1,0 +1,22 @@
+1.此次项目解决的问题是unix文件系统的磁盘碎片整理
+2.核心思想为：从待整理的磁盘映像中依次读文件，然后将读出的文件写入一个新的磁盘映像，同时更新文件索引和超级块，文件写完后，在新的磁盘中留出和原磁盘同样大小的空闲区，空闲块按链表连接，最后将更新后索引和超级块写入新磁盘。对于有间接索引的文件，索引块放在数据块前面，整理后的存放形式为(以一级间接索引为例)：
+  iblocks[0]data_block…data_block iblocks[1]data_block…data_block iblocks[2]data_block…data_block
+3.两种重要的数据结构给出了磁盘及文件的各类信息，通过超级块可知磁盘块的大小，索引区的偏移，数据区的偏移，交换区的偏移，空闲索引的头结点，空闲块的头结点；通过索引可得到的有用信息为文件的链接数，文件的大小，文件中数据块的存放位置。
+4.算法实现：
+ （1）将引导区写入defrag-datafile，读出超级块memcpy到sp
+ （2）读出索引块memcpy到inodes，计算出索引的个数N_INODES
+ （3）判断inodes[i].n_link(i=0,1,2,…,N_INODES)，如果不为0，说明该索引inodes[i]指向了一个文件，需要对这一文件进行整理，具体为:
+
+      第一步、算出该文件的数据块数目n_blocks
+
+      第二步、用blk记录该文件中已写入defrag-datafile的数据块数目，用blocks记录defrag-datafile写到了哪儿，读出inodes[i].dblocks[j](j=0,1,2,…,9)指向的块，写到defrag-datafile中blocks指向的位置 ，然后更改inodes[i].dblocks[j]为bolocks所指块，blk++，blocks++，判断blk是否等于n_blocks，等于则开始处理下一文件
+
+      第三步、如果blk不等于n_blocks，说明该文件有一级间接索引，此时调用dfs()递归函数来处理每一个一级索引，同时判断blk是否等于n_blocks，等于则开始处理下一文件 ；如果blk不等于n_blocks，调用dfs()来处理二级间接索引，再判断blk是否等于n_blocks；如果blk不等于n_blocks，调用dfs()来处理三级间接索引
+
+      dfs()算法为：先判断blk是否等于n_blocks，若不等于则读出参数i_point所指块，等于则返回
+      如果读到的是数据块，就写到defrag-datafile中blocks所指块，同时i_point改为blocks所指位置，blocks++,(*blk)++
+      如果读到的是索引块，首先在defrag-datafile中预留该索引块的位置，然后将该索引块memcpy到一个数组p_array里，再对p_array[i]调用dfs()，每一次调用后需判断blk是否等于n_blocks，相等则返回，处理完该数组后，将该数组写回刚刚预留的位置
+
+ （4）将更改后的inodes写入defrag-datafile
+ （5）将free_iblock改为blocks所指块，算出空闲块数，然后连接所有空闲块，即每一块的前四个字节为一个整数索引到下一块
+ （6）将更改后的超级块sp写入defrag-datafile
